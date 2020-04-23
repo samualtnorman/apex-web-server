@@ -1,0 +1,32 @@
+{
+	"name": "web-server",
+	"version": "1.0.0",
+	"description": "",
+	"main": "index.js",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1",
+		"start": "node index",
+		"build": "tsc",
+		"build-watch": "tsc --watch"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/samualtnorman/web-server.git"
+	},
+	"author": "Samual Norman",
+	"license": "MIT",
+	"bugs": {
+		"url": "https://github.com/samualtnorman/web-server/issues"
+	},
+	"homepage": "https://github.com/samualtnorman/web-server#readme",
+	"devDependencies": {
+		"@types/mime-types": "^2.1.0",
+		"@types/node": "^13.13.2",
+		"@types/yamljs": "^0.2.30",
+		"typescript": "^3.8.3"
+	},
+	"dependencies": {
+		"mime-types": "^2.1.26",
+		"yamljs": "^0.3.0"
+	}
+}

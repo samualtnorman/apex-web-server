@@ -1,0 +1,4 @@
+redirects:
+  example.com: https://www.example.com/
+symlinks:
+  localhost: 127.0.0.1/
