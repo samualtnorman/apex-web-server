@@ -21,12 +21,12 @@
 	"homepage": "https://github.com/samualtnorman/web-server#readme",
 	"devDependencies": {
 		"@types/mime-types": "^2.1.0",
-		"@types/node": "^13.13.2",
-		"@types/yamljs": "^0.2.30",
-		"typescript": "^3.8.3"
+		"@types/node": "^13.13.14",
+		"@types/yamljs": "^0.2.31",
+		"typescript": "^3.9.7"
 	},
 	"dependencies": {
-		"mime-types": "^2.1.26",
+		"mime-types": "^2.1.27",
 		"yamljs": "^0.3.0"
 	}
 }
