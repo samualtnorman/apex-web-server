@@ -7,7 +7,8 @@
 		"test": "echo \"Error: no test specified\" && exit 1",
 		"start": "node index",
 		"build": "tsc",
-		"build-watch": "tsc --watch"
+		"build-watch": "tsc --watch",
+		"start-watch": "npx nodemon -w index.js"
 	},
 	"repository": {
 		"type": "git",
@@ -23,6 +24,7 @@
 		"@types/mime-types": "^2.1.0",
 		"@types/node": "^14.0.23",
 		"@types/yamljs": "^0.2.31",
+		"nodemon": "^2.0.4",
 		"typescript": "^3.9.7"
 	},
 	"dependencies": {
