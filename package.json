@@ -8,7 +8,7 @@
 		"start": "node index",
 		"build": "tsc",
 		"build-watch": "tsc --watch",
-		"start-watch": "npx nodemon -w index.js"
+		"start-watch": "sudo npx nodemon -w index.js"
 	},
 	"repository": {
 		"type": "git",

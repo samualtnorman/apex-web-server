@@ -34,21 +34,19 @@ Promise.all([ readFile(resolvePath(__dirname, "privkey.pem")), readFile(resolveP
 
 	new HTTPSServer({ key, cert }, (req, res) => {
 		if (req.headers.host) {
-			if (config && config.redirects && typeof config.redirects == "object" && config.redirects[req.headers.host]) {
-				const href = config.redirects[req.headers.host]
+			if (typeof config.redirects[req.headers.host] == "string") {
+				const href = config.redirects[req.headers.host] + (req.url || "")
 
 				console.log(301, req.headers.host, "->", href)
 				res.writeHead(301, { Location: href })
 				res.end()
 			} else {
-				let dir: string
+				let dir = req.headers.host
 
-				if (config && config.symlinks && typeof config.symlinks == "object" && config.symlinks[req.headers.host])
-					dir = config.symlinks[req.headers.host]
-				else {
-					dir = req.headers.host
-					dir += parseURL(req.url?.replace(/\.\./g, "") || "/").pathname || "/"
-				}
+				if (typeof config.symlinks?.[dir] == "string")
+					dir = config.symlinks[dir]
+
+				dir += parseURL(req.url?.replace(/\.\./g, "") || "/").pathname || "/"
 
 				if (dir.slice(-1) == "/")
 					dir += "index.html"
@@ -156,8 +154,11 @@ Promise.all([ readFile(resolvePath(__dirname, "privkey.pem")), readFile(resolveP
 	}).listen(443)
 })
 
-let config = loadYaml("config.yml")
+let config: Config
 
-setTimeout(() => {
+refreshTimeoutLoop()
+
+function refreshTimeoutLoop() {
 	config = loadYaml("config.yml")
-}, 10000)
+	setTimeout(refreshTimeoutLoop, 10000)
+}

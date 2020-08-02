@@ -1,4 +1,7 @@
 redirects:
-  example.com: https://www.example.com/
+  # format: <hostname>: <full url>
+  # redirect sends the browser to a new address using 301
 symlinks:
-  localhost: 127.0.0.1/
+  # format: <hostname>: <hostname/directory>
+  # symlink lies to browser and treats request as if they were looking somewhere else
+  localhost: 127.0.0.1
