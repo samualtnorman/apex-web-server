@@ -106,4 +106,5 @@ dist
 web
 fullchain.pem
 privkey.pem
-index.js
+*.js
+meta
