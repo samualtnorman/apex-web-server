@@ -201,5 +201,5 @@ function isJSONObject(value: unknown): value is { [key: string]: JSONValue } {
 }
 
 function log(statusCode: number, req: IncomingMessage, msg: string) {
-	console.log(`[${timeStamp}] [${statusCode}] [${req.connection.remoteAddress || "unavailable"}] ${msg}`)
+	console.log(`[${timeStamp()}] [${statusCode}] [${req.connection.remoteAddress || "unavailable"}] ${msg}`)
 }
