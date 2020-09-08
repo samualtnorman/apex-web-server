@@ -1,9 +1,12 @@
 redirects:
   # format: <hostname>: <full url>
   # redirect sends the browser to a new address using 301
+  localhost: https://google.com
 symlinks:
   # format: <hostname>: <hostname/directory>
   # symlink lies to browser and treats request as if they were looking somewhere else
-  localhost: 127.0.0.1
+  # localhost: 127.0.0.1
 headers:
   Access-Control-Allow-Origin: "*"
+apis:
+  localhost/foo: "./my_module"
