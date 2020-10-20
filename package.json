@@ -1,14 +1,19 @@
 {
-	"name": "web-server",
+	"name": "apex-web-server",
 	"version": "1.0.0",
 	"description": "",
 	"main": "index.js",
+	"bin": {
+		"apex": "bin/apex"
+	},
+	"files": [
+		"lib/apex.js"
+	],
 	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1",
-		"start": "node index",
+		"start": "node .",
 		"build": "tsc",
-		"build-watch": "tsc --watch",
-		"start-watch": "sudo npx nodemon -w index.js"
+		"w-build": "tsc --watch",
+		"w-start": "sudo npx nodemon -w index.js"
 	},
 	"repository": {
 		"type": "git",
@@ -22,13 +27,14 @@
 	"homepage": "https://github.com/samualtnorman/web-server#readme",
 	"devDependencies": {
 		"@types/mime-types": "^2.1.0",
-		"@types/node": "^14.0.23",
+		"@types/node": "^14.14.0",
 		"@types/yamljs": "^0.2.31",
-		"nodemon": "^2.0.4",
-		"typescript": "^4.0.2"
+		"nodemon": "^2.0.6",
+		"typescript": "^4.0.3"
 	},
 	"dependencies": {
 		"mime-types": "^2.1.27",
+		"pm2": "^4.5.0",
 		"yamljs": "^0.3.0"
 	}
 }

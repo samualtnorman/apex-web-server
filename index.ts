@@ -12,6 +12,8 @@ type Config = {
 	symlinks: Record<string, string>
 	httpPort: number
 	httpsPort: number
+	apis: Record<string, string>
+	headers: Record<string, string>
 }
 
 type JSONValue = string | number | boolean | null | JSONValue[] | {
@@ -23,7 +25,10 @@ const loadedModules = new Map<string, {
 	api(args: any): unknown
 }>()
 
-Promise.all([ readFile(resolvePath(__dirname, "privkey.pem")).catch(() => ""), readFile(resolvePath(__dirname, "fullchain.pem")).catch(() => "") ]).then(([ key, cert ]) => {
+Promise.all([
+	readFile(resolvePath("privkey.pem"), { encoding: "utf-8" }).catch(() => ""),
+	readFile(resolvePath("fullchain.pem"), { encoding: "utf-8" }).catch(() => "")
+]).then(([ key, cert ]) => {
 	let httpPort = Number(config.httpPort) || 80
 	let httpsPort = Number(config.httpsPort) || 443
 
@@ -35,7 +40,7 @@ Promise.all([ readFile(resolvePath(__dirname, "privkey.pem")).catch(() => ""), r
 			if (req.headers.host) {
 				const href = `https://${req.headers.host}${req.url || ""}`
 
-				log(301, req, `redirected from HTTP to ${href}`)
+				log(301, req, `redirecting from HTTP to ${href}`)
 				res.writeHead(301, { Location: href })
 			}
 
@@ -57,9 +62,9 @@ function loadConfigLoop() {
 	let configTemp
 
 	try {
-		configTemp = loadYaml(resolvePath(__dirname, "config.yml")) as JSONValue
+		configTemp = loadYaml(resolvePath("config.yml")) as JSONValue
 	} catch (error) {
-		console.log("Did not load config file: incorrect format", error.parsedLine || "")
+		console.log("Did not load config file: incorrect format", error?.parsedLine || "")
 	}
 
 	if (isJSONObject(configTemp))
@@ -95,7 +100,7 @@ async function loadModule(url: string, name: string) {
 
 	loadedModules.set(url, {
 		name,
-		api: (await import(name)).default
+		api: await (await import(name)).default
 	})
 }
 
@@ -139,7 +144,7 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 						dir += "index.html"
 
 					const range = req.headers.range
-					const path = resolvePath(__dirname, "web", dir)
+					const path = resolvePath("web", dir)
 
 					stat(path).then(stats => {
 						if (stats.isFile()) {
@@ -193,7 +198,7 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 							case "ENOENT":
 								log(404, req, `${dir} does not exist`)
 
-								readFile(resolvePath(__dirname,  "meta/404.html")).catch(() => "").then(
+								readFile(resolvePath("meta/404.html")).catch(() => "").then(
 									value => res.writeHead(404, { "Content-Type": "text/html" }).end(value),
 									() => res.writeHead(404, { "Content-Type": "text/plain" }).end("404 not found")
 								)
@@ -217,7 +222,7 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 								log(500, req, "let samual know if you see this:")
 								console.log(reason)
 
-								readFile(resolvePath(__dirname,  "web/_status/500.html")).then(
+								readFile(resolvePath("web/_status/500.html")).then(
 									value => res.writeHead(500, { "Content-Type": "text/html" }).end(value),
 									() => res.writeHead(500, { "Content-Type": "text/plain" }).end("500 internal server error")
 								)
@@ -228,13 +233,16 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 
 			case "POST": {
 				let data = ""
+				let url = `${host}${req.url}`
+
+				console.log(`answering POST request to ${url} from ${req.connection.remoteAddress}`)
 
 				req.on("data", (chunk: Buffer) => data += chunk.toString()).on("end", () => {
-					const module = loadedModules.get(`${host}${req.url}`)
+					const module = loadedModules.get(url)
 
-					if (module) {
+					if (module)
 						Promise.resolve(module.api(data)).then(value => res.end(JSON.stringify(value))).catch(reason => console.log(reason))
-					} else
+					else
 						res.end(`{"ok":false,"msg":"no api on this url"}`)
 				})
 			}
@@ -243,14 +251,10 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 		res.end()
 }
 
-function timeStamp() {
-	return Math.round(Date.now() / 1000).toString(36)
-}
-
 function isJSONObject(value: unknown): value is { [key: string]: JSONValue } {
 	return value && typeof value == "object" && !Array.isArray(value)
 }
 
 function log(statusCode: number, req: IncomingMessage, msg: string) {
-	console.log(`[${(new Date).toTimeString().split(" ")[0]}] [${timeStamp()}] [${statusCode}] [${req.connection.remoteAddress || "unavailable"}] ${msg}`)
+	console.log(`[${(new Date).toTimeString().split(" ")[0]}] [${Math.round(Date.now() / 1000).toString(36)}] [${statusCode}] [${req.connection.remoteAddress || "unavailable"}] ${msg}`)
 }
