@@ -87,7 +87,7 @@ function loadConfigLoop() {
 		}
 
 		for (const url of toUnload) {
-			console.log(`unloading module at ${url}`)
+			console.log(`unloading module at '${url}'`)
 			loadedModules.delete(url)
 		}
 	}
@@ -95,13 +95,24 @@ function loadConfigLoop() {
 	setTimeout(loadConfigLoop, 10000)
 }
 
-async function loadModule(url: string, name: string) {
-	console.log(`loading module ${name} at ${url}`)
+function loadModule(url: string, name: string) {
+	let api
 
-	loadedModules.set(url, {
-		name,
-		api: await (await import(name)).default
-	})
+	try {
+		api = require(name)
+
+		if (typeof api == "function")
+			console.log(`loaded module '${name}' at '${url}'`)
+		else {
+			api = () => ({ ok: false, msg: "this api failed to load" })
+			console.log(`failed to load module '${name}', was not a function`)
+		}
+	} catch {
+		api = () => ({ ok: false, msg: "this api failed to load" })
+		console.log(`failed to load module '${name}', did not exist`)
+	}
+
+	loadedModules.set(url, { name, api })
 }
 
 function processRequest(req: IncomingMessage, res: ServerResponse) {

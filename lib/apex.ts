@@ -1,60 +1,61 @@
-import { exec } from "child_process"
-import { resolve as resolvePath } from "path"
-import { list, start, disconnect, stop, connect, startup } from "pm2"
-import { userInfo, platform } from "os"
+import { createInterface } from "readline"
 
-const modulePath = resolvePath(__dirname, "..")
+const rl = createInterface({
+	input: process.stdin,
+	output: process.stdout
+})
 
-type ArgValue = boolean | number | string/* | ArgValue[]*/
+// rl.question("test ", (answer) => {
+// 	console.log(`test: ${answer}`);
 
-const options = new Map<string, ArgValue>()
-const commands: string[] = []
-
-const { username } = userInfo()
-
-for (let arg of process.argv.slice(2)) {
-	if (arg[0] == "-") {
-		let [ key, valueRaw ] = arg.split("=")
-		let value: ArgValue
-
-		if (valueRaw)
-			if (valueRaw == "true")
-				value = true
-			else if (valueRaw == "false")
-				value = false
-			else {
-				let number = Number(valueRaw)
-
-				if (isFinite(number))
-					value = number
-				else
-					value = valueRaw
-			}
-		else
-			value = true
-
-		if (arg[1] == "-")
-			options.set(key.slice(2), value)
-		else
-			for (let option of key.slice(1))
-				options.set(option, value)
-	} else
-		commands.push(arg)
-}
-
-// connect((error: Error | null) => {
-// 	if (error) {
-// 		console.log(error)
-// 		disconnect()
-// 	} else {
-// 		startup("systemd", (error, info) => {
-// 			console.log(error, info)
-// 			disconnect()
-// 		})
-// 	}
+// 	rl.close();
 // })
 
-console.log()
+rl.write("test")
+
+// import { exec } from "child_process"
+// import { resolve as resolvePath } from "path"
+// import { list, start, disconnect, stop, connect, startup } from "pm2"
+// import { userInfo, platform } from "os"
+
+// const modulePath = resolvePath(__dirname, "..")
+
+// type ArgValue = boolean | number | string/* | ArgValue[]*/
+
+// const options = new Map<string, ArgValue>()
+// const commands: string[] = []
+
+// const { username } = userInfo()
+
+// for (let arg of process.argv.slice(2)) {
+// 	if (arg[0] == "-") {
+// 		let [ key, valueRaw ] = arg.split("=")
+// 		let value: ArgValue
+
+// 		if (valueRaw)
+// 			if (valueRaw == "true")
+// 				value = true
+// 			else if (valueRaw == "false")
+// 				value = false
+// 			else {
+// 				let number = Number(valueRaw)
+
+// 				if (isFinite(number))
+// 					value = number
+// 				else
+// 					value = valueRaw
+// 			}
+// 		else
+// 			value = true
+
+// 		if (arg[1] == "-")
+// 			options.set(key.slice(2), value)
+// 		else
+// 			for (let option of key.slice(1))
+// 				options.set(option, value)
+// 	} else
+// 		commands.push(arg)
+// }
 
 // connect((error: Error | null) => {
 // 	if (error) {

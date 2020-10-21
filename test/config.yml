@@ -1,2 +1,2 @@
-redirects:
-  localhost: https://google.com
+apis:
+  localhost/: yo
