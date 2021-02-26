@@ -2,10 +2,11 @@ import { Server as HTTPServer, IncomingMessage, ServerResponse } from "http"
 import { Server as HTTPSServer } from "https"
 import { lookup as lookupType } from "mime-types"
 import { resolve as resolvePath, dirname } from "path"
-import { parse as parseURL } from "url"
+import { URL } from "url"
 import { createReadStream } from "fs"
 import { load as loadYaml } from "yamljs"
 import { readFile, stat } from "fs/promises"
+import { validate } from "./lib"
 
 type Config = {
 	redirects: Record<string, string>
@@ -67,7 +68,7 @@ function loadConfigLoop() {
 		console.log("Did not load config file: incorrect format", error?.parsedLine || "")
 	}
 
-	if (isJSONObject(configTemp))
+	if (validate(configTemp))
 		config = configTemp
 	else
 		console.log("Did not load config file: incorrect format")
@@ -149,7 +150,7 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 					if (symlink)
 						dir = symlink
 
-					dir += parseURL(req.url?.replace(/\.\./g, "") || "/").pathname || "/"
+					dir += new URL(req.url?.replace(/\.\./g, "") || "/").pathname || "/"
 
 					if (dir.slice(-1) == "/")
 						dir += "index.html"
@@ -246,7 +247,7 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 				let data = ""
 				let url = `${host}${req.url}`
 
-				console.log(`answering POST request to ${url} from ${req.connection.remoteAddress}`)
+				console.log(`answering POST request to ${url} from ${req.socket.remoteAddress}`)
 
 				req.on("data", (chunk: Buffer) => data += chunk.toString()).on("end", () => {
 					const module = loadedModules.get(url)
@@ -260,10 +261,6 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 		}
 	} else
 		res.end()
-}
-
-function isJSONObject(value: unknown): value is { [key: string]: JSONValue } {
-	return value && typeof value == "object" && !Array.isArray(value)
 }
 
 function log(statusCode: number, req: IncomingMessage, msg: string) {
