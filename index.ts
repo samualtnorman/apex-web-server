@@ -4,30 +4,37 @@ import { lookup as lookupType } from "mime-types"
 import { resolve as resolvePath, dirname } from "path"
 import { parse as parseURL } from "url"
 import { createReadStream } from "fs"
-import { load as loadYaml } from "yamljs"
+import { load as loadYAML, YAMLException } from "js-yaml"
 import { readFile, stat } from "fs/promises"
+import { matchesSchema, assert, ParseSchema } from "./lib"
 
-type Config = {
-	redirects: Record<string, string>
-	symlinks: Record<string, string>
-	httpPort: number
-	httpsPort: number
-	apis: Record<string, string>
-	headers: Record<string, string>
-}
+const configSchema = {
+	redirects: [ "optional", [ "record", "string" ] ],
+	symlinks: [ "optional", [ "record", "string" ] ],
+	httpPort: [ "optional", "number" ],
+	httpsPort: [ "optional", "number" ],
+	apis: [ "optional", [ "record", "string" ] ],
+	headers: [ "optional", [ "record", "string" ] ],
+	alias: [ "optional", [ "record", "string" ] ]
+} as const
 
-type JSONValue = string | number | boolean | null | JSONValue[] | {
-	[key: string]: JSONValue
-}
+let config: ParseSchema<typeof configSchema>
 
-const loadedModules = new Map<string, {
-	name: string
-	api(args: any): unknown
-}>()
+const readConfigFilePromise = readFile(resolvePath("config.yml"), { encoding: "utf-8" }).then(configFile => {
+	let loadedYAML = loadYAML(configFile)
+
+	if (!matchesSchema(loadedYAML, configSchema)) {
+		console.log("Invalid config, could not start")
+		process.exit(1)
+	}
+
+	config = loadedYAML
+})
 
 Promise.all([
 	readFile(resolvePath("privkey.pem"), { encoding: "utf-8" }).catch(() => ""),
-	readFile(resolvePath("fullchain.pem"), { encoding: "utf-8" }).catch(() => "")
+	readFile(resolvePath("fullchain.pem"), { encoding: "utf-8" }).catch(() => ""),
+	readConfigFilePromise
 ]).then(([ key, cert ]) => {
 	let httpPort = Number(config.httpPort) || 80
 	let httpsPort = Number(config.httpsPort) || 443
@@ -54,25 +61,27 @@ Promise.all([
 	}
 })
 
-let config: Record<string, JSONValue> = {}
+// let config: Record<string, JSONValue> = {}
 
 loadConfigLoop()
 
-function loadConfigLoop() {
-	let configTemp
+async function loadConfigLoop() {
+	let loadedYAML
+	let error = false
 
 	try {
-		configTemp = loadYaml(resolvePath("config.yml")) as JSONValue
+		loadedYAML = loadYAML(await readFile(resolvePath("config.yml"), { encoding: "utf-8" }))
 	} catch (error) {
-		console.log("Did not load config file: incorrect format", error?.parsedLine || "")
+		console.log(`Config file has syntax error, did not reload\nReason: ${error.message}`)
+		error = true
 	}
 
-	if (isJSONObject(configTemp))
-		config = configTemp
-	else
-		console.log("Did not load config file: incorrect format")
+	if (!error) {
+		if (matchesSchema(loadedYAML, configSchema))
+			config = loadedYAML
+		else
+			console.log("Config file did not match schema, did not reload")
 
-	if (isJSONObject(config.apis)) {
 		const toUnload = new Set(loadedModules.keys())
 
 		for (const [ url, name ] of Object.entries(config.apis)) {
