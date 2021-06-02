@@ -33,7 +33,7 @@
 		"typescript": "^4.2.3"
 	},
 	"dependencies": {
-		"mime-types": "^2.1.29",
+		"mime-types": "^2.1.31",
 		"pm2": "^4.5.5",
 		"yamljs": "^0.3.0"
 	}
