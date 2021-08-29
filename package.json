@@ -4,7 +4,7 @@
 	"description": "",
 	"main": "index.js",
 	"bin": {
-		"apex": "bin/apex"
+		"apex": "bin/apex.js"
 	},
 	"files": [
 		"lib/apex.js"
