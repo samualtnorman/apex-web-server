@@ -2,10 +2,13 @@ import { Server as HTTPServer, IncomingMessage, ServerResponse } from "http"
 import { Server as HTTPSServer } from "https"
 import { lookup as lookupType } from "mime-types"
 import { resolve as resolvePath, dirname } from "path"
-import { parse as parseURL } from "url"
 import { createReadStream } from "fs"
-import { load as loadYaml } from "yamljs"
-import { readFile, stat } from "fs/promises"
+import { load as parseYAML, YAMLException } from "js-yaml"
+import fs from "fs"
+import { parse } from "url"
+import { assert } from "./lib"
+
+const { readFile, stat } = fs.promises
 
 type Config = {
 	redirects: Record<string, string>
@@ -56,39 +59,57 @@ Promise.all([
 
 let config: Record<string, JSONValue> = {}
 
+let configFileLastUpdated = NaN
+
 loadConfigLoop()
 
-function loadConfigLoop() {
+async function loadConfigLoop() {
 	let configTemp
 
-	try {
-		configTemp = loadYaml(resolvePath("config.yml")) as JSONValue
-	} catch (error) {
-		console.log("Did not load config file: incorrect format", error?.parsedLine || "")
-	}
+	const configFileModifiedTime = (await stat(resolvePath("config.yml"))).mtimeMs
 
-	if (isJSONObject(configTemp))
-		config = configTemp
-	else
-		console.log("Did not load config file: incorrect format")
+	if (configFileModifiedTime != configFileLastUpdated) {
+		console.log("config file has been updated, reloading")
 
-	if (isJSONObject(config.apis)) {
-		const toUnload = new Set(loadedModules.keys())
+		configFileLastUpdated = configFileModifiedTime
 
-		for (const [ url, name ] of Object.entries(config.apis)) {
-			toUnload.delete(url)
+		const yamlWarnings: string[] = []
 
-			if (typeof name == "string") {
-				const module = loadedModules.get(url)
-
-				if (!module || module.name != name)
-					loadModule(url, name)
-			}
+		try {
+			configTemp = parseYAML(await readFile(resolvePath("config.yml"), { encoding: "utf-8" }), { onWarning(error) { yamlWarnings.push(error.message) } })
+		} catch (error) {
+			assert(error instanceof YAMLException, "error was not a YAMLException")
+			console.error(`failed to parse config file: ${error.message}`)
 		}
 
-		for (const url of toUnload) {
-			console.log(`unloading module at '${url}'`)
-			loadedModules.delete(url)
+		if (isJSONObject(configTemp)) {
+			if (yamlWarnings.length) {
+				console.warn("\nyaml parse warnings:\n")
+				console.warn(yamlWarnings.join("\n"), "\n")
+			}
+
+			config = configTemp
+		} else
+			console.log("did not load config file")
+
+		if (isJSONObject(config.apis)) {
+			const toUnload = new Set(loadedModules.keys())
+
+			for (const [ url, name ] of Object.entries(config.apis)) {
+				toUnload.delete(url)
+
+				if (typeof name == "string") {
+					const module = loadedModules.get(url)
+
+					if (!module || module.name != name)
+						loadModule(url, name)
+				}
+			}
+
+			for (const url of toUnload) {
+				console.log(`unloading module at '${url}'`)
+				loadedModules.delete(url)
+			}
 		}
 	}
 
@@ -149,7 +170,7 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 					if (symlink)
 						dir = symlink
 
-					dir += parseURL(req.url?.replace(/\.\./g, "") || "/").pathname || "/"
+					dir += req.url || ""
 
 					if (dir.slice(-1) == "/")
 						dir += "index.html"
@@ -263,7 +284,7 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 }
 
 function isJSONObject(value: unknown): value is { [key: string]: JSONValue } {
-	return value && typeof value == "object" && !Array.isArray(value)
+	return !!value && typeof value == "object" && !Array.isArray(value)
 }
 
 function log(statusCode: number, req: IncomingMessage, msg: string) {

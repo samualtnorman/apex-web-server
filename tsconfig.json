@@ -1,9 +1,16 @@
 {
+	// "include": [ "src" ],
 	"compilerOptions": {
-		"target": "ES2017",
-		"module": "commonjs",
+		"target": "ES2019", /* ES2019 is oldest properly supported ES version in Node 12 which is the oldest currently supported Node version */
+		"module": "CommonJS",
 		"strict": true,
 		"esModuleInterop": true,
-		"forceConsistentCasingInFileNames": true
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"declaration": true,
+		// "outDir": ".",
+		"useUnknownInCatchVariables": true,
+		"exactOptionalPropertyTypes": true,
+		"noImplicitOverride": true
 	}
 }

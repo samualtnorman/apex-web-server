@@ -108,3 +108,4 @@ fullchain.pem
 privkey.pem
 *.js
 meta
+*.d.ts
