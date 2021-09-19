@@ -1,12 +1,10 @@
-import { Server as HTTPServer, IncomingMessage, ServerResponse } from "http"
+import fs, { createReadStream } from "fs"
+import { IncomingMessage, Server as HTTPServer, ServerResponse } from "http"
 import { Server as HTTPSServer } from "https"
-import { lookup as lookupType } from "mime-types"
-import { resolve as resolvePath, dirname } from "path"
-import { createReadStream } from "fs"
 import { load as parseYAML, YAMLException } from "js-yaml"
-import fs from "fs"
-import { parse } from "url"
-import { assert } from "./lib"
+import { lookup as lookupType } from "mime-types"
+import { dirname, resolve as resolvePath } from "path"
+import { assert, dateToString } from "./lib"
 
 const { readFile, stat } = fs.promises
 
@@ -17,6 +15,7 @@ type Config = {
 	httpsPort: number
 	apis: Record<string, string>
 	headers: Record<string, string>
+	webDirectory: string
 }
 
 type JSONValue = string | number | boolean | null | JSONValue[] | {
@@ -36,14 +35,14 @@ Promise.all([
 	let httpsPort = Number(config.httpsPort) || 443
 
 	if (key && cert) {
-		console.log(`Starting HTTP redirect server on port ${httpPort}`)
-		console.log(`Starting HTTPS server on port ${httpsPort}`)
+		log(`start HTTP redirect server on port ${httpPort}`)
+		log(`start HTTPS server on port ${httpsPort}`)
 
 		new HTTPServer((req, res) => {
 			if (req.headers.host) {
 				const href = `https://${req.headers.host}${req.url || ""}`
 
-				log(301, req, `redirecting from HTTP to ${href}`)
+				logRequest(req, 301, `redirect from HTTP to ${href}`)
 				res.writeHead(301, { Location: href })
 			}
 
@@ -52,13 +51,12 @@ Promise.all([
 
 		new HTTPSServer({ key, cert }, processRequest).listen(httpsPort)
 	} else {
-		console.log(`Starting HTTP server on port ${httpPort}`)
+		log(`start HTTP server on port ${httpPort}`)
 		new HTTPServer(processRequest).listen(httpPort)
 	}
 })
 
 let config: Record<string, JSONValue> = {}
-
 let configFileLastUpdated = NaN
 
 loadConfigLoop()
@@ -69,7 +67,7 @@ async function loadConfigLoop() {
 	const configFileModifiedTime = (await stat(resolvePath("config.yml"))).mtimeMs
 
 	if (configFileModifiedTime != configFileLastUpdated) {
-		console.log("config file has been updated, reloading")
+		log("load config file")
 
 		configFileLastUpdated = configFileModifiedTime
 
@@ -82,17 +80,17 @@ async function loadConfigLoop() {
 			console.error(`failed to parse config file: ${error.message}`)
 		}
 
-		if (isJSONObject(configTemp)) {
+		if (isRecord(configTemp)) {
 			if (yamlWarnings.length) {
 				console.warn("\nyaml parse warnings:\n")
 				console.warn(yamlWarnings.join("\n"), "\n")
 			}
 
-			config = configTemp
+			config = configTemp as Record<string, JSONValue>
 		} else
-			console.log("did not load config file")
+			log("did not load config file")
 
-		if (isJSONObject(config.apis)) {
+		if (isRecord(config.apis)) {
 			const toUnload = new Set(loadedModules.keys())
 
 			for (const [ url, name ] of Object.entries(config.apis)) {
@@ -107,7 +105,7 @@ async function loadConfigLoop() {
 			}
 
 			for (const url of toUnload) {
-				console.log(`unloading module at '${url}'`)
+				log(`unload module at '${url}'`)
 				loadedModules.delete(url)
 			}
 		}
@@ -123,44 +121,44 @@ function loadModule(url: string, name: string) {
 		api = require(name)
 
 		if (typeof api == "function")
-			console.log(`loaded module '${name}' at '${url}'`)
+			log(`load module '${name}' at '${url}'`)
 		else {
 			api = () => ({ ok: false, msg: "this api failed to load" })
-			console.log(`failed to load module '${name}', was not a function`)
+			log(`fail to load module '${name}', is not a function`)
 		}
 	} catch {
 		api = () => ({ ok: false, msg: "this api failed to load" })
-		console.log(`failed to load module '${name}', did not exist`)
+		log(`fail to load module '${name}', does not exist`)
 	}
 
 	loadedModules.set(url, { name, api })
 }
 
-function processRequest(req: IncomingMessage, res: ServerResponse) {
-	if (req.headers.host) {
-		let host = req.headers.host
+function processRequest(request: IncomingMessage, response: ServerResponse) {
+	if (request.headers.host) {
+		let host = request.headers.host
 
-		switch (req.method) {
+		switch (request.method) {
 			case "GET": {
 				let redirect: string | null = null
 
-				if (isJSONObject(config.redirects)) {
-					let potRedirect = config.redirects[host]
+				if (isRecord(config.redirects)) {
+					let potentialRedirect = config.redirects[host]
 
-					if (typeof potRedirect == "string")
-						redirect = potRedirect
+					if (typeof potentialRedirect == "string")
+						redirect = potentialRedirect
 				}
 
 				if (redirect) {
-					const href = `${redirect}${req.url || ""}`
+					const href = `${redirect}${request.url || ""}`
 
-					log(301, req, `redirected from ${host} to ${href}`)
-					res.writeHead(301, { Location: href }).end()
+					logRequest(request, 301, `redirect from ${host} to ${href}`)
+					response.writeHead(301, { Location: href }).end()
 				} else {
 					let dir = host
 					let symlink: string | null = null
 
-					if (isJSONObject(config.symlinks)) {
+					if (isRecord(config.symlinks)) {
 						let potSymlink = config.symlinks[dir]
 
 						if (typeof potSymlink == "string")
@@ -170,25 +168,25 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 					if (symlink)
 						dir = symlink
 
-					dir += req.url || ""
+					dir += request.url || ""
 
 					if (dir.slice(-1) == "/")
 						dir += "index.html"
 
-					const range = req.headers.range
-					const path = resolvePath("web", dir)
+					const range = request.headers.range
+					const path = resolvePath(String(config.webDirectory) || "web", dir)
 
 					stat(path).then(stats => {
 						if (stats.isFile()) {
 							const options: Parameters<typeof createReadStream>[1] = {}
 
-							res.setHeader("Content-Type", lookupType(dir) || "text/plain")
-							res.setHeader("Content-Location", `https://${dir}`)
+							response.setHeader("Content-Type", lookupType(dir) || "text/plain")
+							response.setHeader("Content-Location", `https://${dir}`)
 
-							if (isJSONObject(config.headers))
+							if (isRecord(config.headers))
 								for (const [ header, content ] of Object.entries(config.headers))
 									if (typeof content == "string")
-										res.setHeader(header, content)
+										response.setHeader(header, content)
 
 							if (range) {
 								const [ startStr, endStr ] = range.replace(/bytes=/, "").split("-")
@@ -202,25 +200,25 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 								options.start = start
 								options.end = end
 
-								log(206, req, `serving partial content from ${dir} (${start}-${end}/${stats.size})`)
+								logRequest(request, 206, `serve partial content from ${dir} (${start}-${end}/${stats.size})`)
 
-								res.writeHead(206, {
+								response.writeHead(206, {
 									"Content-Range": `bytes ${start}-${end}/${stats.size}`,
 									"Accept-Ranges": "bytes",
 									"Content-Length": end - start + 1,
 								})
 							} else {
-								log(200, req, `serving ${dir}`)
-								res.writeHead(200, { "Content-Length": stats.size })
+								logRequest(request, 200, `serve ${dir}`)
+								response.writeHead(200, { "Content-Length": stats.size })
 							}
 
-							createReadStream(path, options).pipe(res)
+							createReadStream(path, options).pipe(response)
 						} else {
 							const href = `https://${dir}/`
 
-							log(301, req, `redirecting to ${href} since request was a directory - A`)
+							logRequest(request, 301, `redirect to ${href} since request was a directory - A`)
 
-							res.writeHead(301, { Location: href })
+							response.writeHead(301, { Location: href })
 								.end(`302 moved permanently\n${href}`)
 						}
 					}, (reason: NodeJS.ErrnoException | null) => {
@@ -228,35 +226,35 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 
 						switch (reason?.code) {
 							case "ENOENT":
-								log(404, req, `${dir} does not exist`)
+								logRequest(request, 404, `${dir} does not exist`)
 
 								readFile(resolvePath("meta/404.html")).catch(() => "").then(
-									value => res.writeHead(404, { "Content-Type": "text/html" }).end(value),
-									() => res.writeHead(404, { "Content-Type": "text/plain" }).end("404 not found")
+									value => response.writeHead(404, { "Content-Type": "text/html" }).end(value),
+									() => response.writeHead(404, { "Content-Type": "text/plain" }).end("404 not found")
 								)
 
 								break
 							case "ENOTDIR":
 								href = `https://${dirname(dir)}`
 
-								res.writeHead(301, { Location: href })
+								response.writeHead(301, { Location: href })
 									.end(`301 moved permanently\n${href}`)
 								break
 							case "EISDIR":
 								href = `https://${dir}/`
 
-								log(301, req, `redirecting to ${href} since request was a directory - B`)
+								logRequest(request, 301, `redirect to ${href} since request was a directory - B`)
 
-								res.writeHead(301, { Location: href })
+								response.writeHead(301, { Location: href })
 									.end(`302 moved permanently\n${href}`)
 								break
 							default:
-								log(500, req, "let samual know if you see this:")
+								logRequest(request, 500, "let samual know if you see this:")
 								console.log(reason)
 
 								readFile(resolvePath("web/_status/500.html")).then(
-									value => res.writeHead(500, { "Content-Type": "text/html" }).end(value),
-									() => res.writeHead(500, { "Content-Type": "text/plain" }).end("500 internal server error")
+									value => response.writeHead(500, { "Content-Type": "text/html" }).end(value),
+									() => response.writeHead(500, { "Content-Type": "text/plain" }).end("500 internal server error")
 								)
 						}
 					})
@@ -265,28 +263,32 @@ function processRequest(req: IncomingMessage, res: ServerResponse) {
 
 			case "POST": {
 				let data = ""
-				let url = `${host}${req.url}`
+				let url = `${host}${request.url}`
 
-				console.log(`answering POST request to ${url} from ${req.connection.remoteAddress}`)
+				log(`answer POST request to ${url} from ${request.connection.remoteAddress}`)
 
-				req.on("data", (chunk: Buffer) => data += chunk.toString()).on("end", () => {
+				request.on("data", (chunk: Buffer) => data += chunk.toString()).on("end", () => {
 					const module = loadedModules.get(url)
 
 					if (module)
-						Promise.resolve(module.api(data)).then(value => res.end(JSON.stringify(value))).catch(reason => console.log(reason))
+						Promise.resolve(module.api(data)).then(value => response.end(JSON.stringify(value))).catch(reason => console.log(reason))
 					else
-						res.end(`{"ok":false,"msg":"no api on this url"}`)
+						response.end(`{"ok":false,"msg":"no api on this url"}`)
 				})
 			}
 		}
 	} else
-		res.end()
+		response.end()
 }
 
-function isJSONObject(value: unknown): value is { [key: string]: JSONValue } {
+function isRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value == "object" && !Array.isArray(value)
 }
 
-function log(statusCode: number, req: IncomingMessage, msg: string) {
-	console.log(`[${(new Date).toTimeString().split(" ")[0]}] [${Math.round(Date.now() / 1000).toString(36)}] [${statusCode}] [${req.connection.remoteAddress || "unavailable"}] ${msg}`)
+function logRequest({ connection, method, httpVersion, url }: IncomingMessage, statusCode: number, message: string) {
+	log(`[${connection.remoteAddress || "unavailable"}] [${method} ${url || "/"} HTTP/${httpVersion}] [${statusCode}] ${message}`)
+}
+
+function log(message: string) {
+	console.log(`[${dateToString(new Date())}] ${message}`)
 }

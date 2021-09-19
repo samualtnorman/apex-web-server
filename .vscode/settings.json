@@ -1,6 +1,7 @@
 {
     "files.exclude": {
        "**/.*": true,
+       "**/*.d.ts": true,
        "**/*.js": { "when": "$(basename).ts" },
        "LICENSE": true,
        "node_modules": true,
