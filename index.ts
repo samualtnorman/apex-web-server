@@ -174,7 +174,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 						dir += "index.html"
 
 					const range = request.headers.range
-					const path = resolvePath(String(config.webDirectory) || "web", dir)
+					const path = resolvePath(String(config.webDirectory || "web"), dir)
 
 					stat(path).then(stats => {
 						if (stats.isFile()) {
