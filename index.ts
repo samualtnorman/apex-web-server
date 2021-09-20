@@ -16,6 +16,7 @@ type Config = {
 	apis: Record<string, string>
 	headers: Record<string, string>
 	webDirectory: string
+	logHeaders: boolean
 }
 
 type JSONValue = string | number | boolean | null | JSONValue[] | {
@@ -34,15 +35,20 @@ Promise.all([
 	let httpPort = Number(config.httpPort) || 80
 	let httpsPort = Number(config.httpsPort) || 443
 
-	if (key && cert) {
+	if (true || key && cert) {
 		log(`start HTTP redirect server on port ${httpPort}`)
 		log(`start HTTPS server on port ${httpsPort}`)
 
 		new HTTPServer((req, res) => {
+			log(`[${req.connection.remoteAddress}] ${req.method} ${req.url || "/"} HTTP/${req.httpVersion}`)
+
+			if (config.logHeaders)
+				log(`header: ${req.rawHeaders.join(", ")}`)
+
 			if (req.headers.host) {
 				const href = `https://${req.headers.host}${req.url || ""}`
 
-				logRequest(req, 301, `redirect from HTTP to ${href}`)
+				log(`301 redirect from HTTP to ${href}`)
 				res.writeHead(301, { Location: href })
 			}
 
@@ -135,6 +141,12 @@ function loadModule(url: string, name: string) {
 }
 
 function processRequest(request: IncomingMessage, response: ServerResponse) {
+	console.log(request.constructor.name)
+	log(`[${request.connection.remoteAddress}] ${request.method} ${request.url || "/"} HTTP/${request.httpVersion}`)
+
+	if (config.logHeaders)
+		log(`header: ${request.rawHeaders.join(", ")}`)
+
 	if (request.headers.host) {
 		let host = request.headers.host
 
@@ -152,7 +164,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 				if (redirect) {
 					const href = `${redirect}${request.url || ""}`
 
-					logRequest(request, 301, `redirect from ${host} to ${href}`)
+					log(`301 redirect from ${host} to ${href}`)
 					response.writeHead(301, { Location: href }).end()
 				} else {
 					let dir = host
@@ -181,6 +193,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 							const options: Parameters<typeof createReadStream>[1] = {}
 
 							response.setHeader("Content-Type", lookupType(dir) || "text/plain")
+							// TODO fix redirecting to https when on http mode
 							response.setHeader("Content-Location", `https://${dir}`)
 
 							if (isRecord(config.headers))
@@ -200,7 +213,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 								options.start = start
 								options.end = end
 
-								logRequest(request, 206, `serve partial content from ${dir} (${start}-${end}/${stats.size})`)
+								log(`206 serve partial content from ${dir} (${start}-${end}/${stats.size})`)
 
 								response.writeHead(206, {
 									"Content-Range": `bytes ${start}-${end}/${stats.size}`,
@@ -208,25 +221,26 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 									"Content-Length": end - start + 1,
 								})
 							} else {
-								logRequest(request, 200, `serve ${dir}`)
+								log(`200 serve ${dir}`)
 								response.writeHead(200, { "Content-Length": stats.size })
 							}
 
 							createReadStream(path, options).pipe(response)
 						} else {
+							// TODO fix redirecting to https when on http mode
 							const href = `https://${dir}/`
 
-							logRequest(request, 301, `redirect to ${href} since request was a directory - A`)
+							log(`301 redirect to ${href} since request was a directory - A`)
 
 							response.writeHead(301, { Location: href })
-								.end(`302 moved permanently\n${href}`)
+								.end(`301 moved permanently\n${href}`)
 						}
 					}, (reason: NodeJS.ErrnoException | null) => {
 						let href: string
 
 						switch (reason?.code) {
 							case "ENOENT":
-								logRequest(request, 404, `${dir} does not exist`)
+								log(`404 ${dir} does not exist`)
 
 								readFile(resolvePath("meta/404.html")).catch(() => "").then(
 									value => response.writeHead(404, { "Content-Type": "text/html" }).end(value),
@@ -235,21 +249,23 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 
 								break
 							case "ENOTDIR":
+								// TODO fix redirecting to https when on http mode
 								href = `https://${dirname(dir)}`
 
 								response.writeHead(301, { Location: href })
 									.end(`301 moved permanently\n${href}`)
 								break
 							case "EISDIR":
+								// TODO fix redirecting to https when on http mode
 								href = `https://${dir}/`
 
-								logRequest(request, 301, `redirect to ${href} since request was a directory - B`)
+								log(`301 redirect to ${href} since request was a directory - B`)
 
 								response.writeHead(301, { Location: href })
-									.end(`302 moved permanently\n${href}`)
+									.end(`301 moved permanently\n${href}`)
 								break
 							default:
-								logRequest(request, 500, "let samual know if you see this:")
+								log("500 let samual know if you see this:")
 								console.log(reason)
 
 								readFile(resolvePath("web/_status/500.html")).then(
@@ -283,10 +299,6 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value == "object" && !Array.isArray(value)
-}
-
-function logRequest({ connection, method, httpVersion, url }: IncomingMessage, statusCode: number, message: string) {
-	log(`[${connection.remoteAddress || "unavailable"}] [${method} ${url || "/"} HTTP/${httpVersion}] [${statusCode}] ${message}`)
 }
 
 function log(message: string) {
