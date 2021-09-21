@@ -25,10 +25,7 @@ type JSONValue = string | number | boolean | null | JSONValue[] | {
 
 // TODO type: "module" in package.json
 
-const loadedModules = new Map<string, {
-	name: string
-	api(args: any): unknown
-}>()
+const loadedModules = new Map<string, { name: string, api: Function }>()
 
 let config: Record<string, JSONValue> = {}
 let configFileLastUpdated = NaN
@@ -124,25 +121,23 @@ async function loadConfigLoop() {
 	setTimeout(loadConfigLoop, 10000)
 }
 
-function loadModule(url: string, name: string) {
-	let api
+async function loadModule(url: string, name: string) {
+	loadedModules.set(url, {
+		name,
+		api: await import(name).then((api: unknown) => {
+			if (typeof api == "function") {
+				log(`load module '${name}' at '${url}'`)
+				return api
+			}
 
-	try {
-		// TODO convert to import()
-		api = require(name)
-
-		if (typeof api == "function")
-			log(`load module '${name}' at '${url}'`)
-		else {
-			api = () => ({ ok: false, msg: "this api failed to load" })
 			log(`fail to load module '${name}', is not a function`)
-		}
-	} catch {
-		api = () => ({ ok: false, msg: "this api failed to load" })
-		log(`fail to load module '${name}', does not exist`)
-	}
-
-	loadedModules.set(url, { name, api })
+			return () => ({ ok: false, msg: "this api failed to load" })
+		}, error => {
+			log(`fail to load module:`)
+			console.error(error)
+			return () => ({ ok: false, msg: "this api failed to load" })
+		})
+	})
 }
 
 // TODO x real ip
