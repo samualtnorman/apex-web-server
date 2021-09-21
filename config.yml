@@ -12,3 +12,5 @@ headers:
   Cross-Origin-Embedder-Policy: require-corp
 apis:
   localhost/foo: ./my_module
+logHeaders: false
+# webDirectory: .

@@ -23,19 +23,28 @@ type JSONValue = string | number | boolean | null | JSONValue[] | {
 	[key: string]: JSONValue
 }
 
+// TODO type: "module" in package.json
+
 const loadedModules = new Map<string, {
 	name: string
 	api(args: any): unknown
 }>()
 
-Promise.all([
-	readFile(resolvePath("privkey.pem"), { encoding: "utf-8" }).catch(() => ""),
-	readFile(resolvePath("fullchain.pem"), { encoding: "utf-8" }).catch(() => "")
-]).then(([ key, cert ]) => {
-	let httpPort = Number(config.httpPort) || 80
-	let httpsPort = Number(config.httpsPort) || 443
+let config: Record<string, JSONValue> = {}
+let configFileLastUpdated = NaN
 
-	if (true || key && cert) {
+;(async () => {
+	const [ key, cert ] = await Promise.all([
+		readFile(resolvePath("privkey.pem"), { encoding: "utf-8" }).catch(() => ""),
+		readFile(resolvePath("fullchain.pem"), { encoding: "utf-8" }).catch(() => ""),
+		loadConfigLoop()
+	])
+
+	const httpPort = Number(config.httpPort) || 80
+
+	if (key && cert) {
+		const httpsPort = Number(config.httpsPort) || 443
+
 		log(`start HTTP redirect server on port ${httpPort}`)
 		log(`start HTTPS server on port ${httpsPort}`)
 
@@ -60,12 +69,7 @@ Promise.all([
 		log(`start HTTP server on port ${httpPort}`)
 		new HTTPServer(processRequest).listen(httpPort)
 	}
-})
-
-let config: Record<string, JSONValue> = {}
-let configFileLastUpdated = NaN
-
-loadConfigLoop()
+})()
 
 async function loadConfigLoop() {
 	let configTemp
@@ -124,6 +128,7 @@ function loadModule(url: string, name: string) {
 	let api
 
 	try {
+		// TODO convert to import()
 		api = require(name)
 
 		if (typeof api == "function")
@@ -139,6 +144,10 @@ function loadModule(url: string, name: string) {
 
 	loadedModules.set(url, { name, api })
 }
+
+// TODO x real ip
+// FIXME headers comma list no colon
+// TODO after I fix protocol in redirect url, I need to add a config to force protocol
 
 function processRequest(request: IncomingMessage, response: ServerResponse) {
 	console.log(request.constructor.name)
