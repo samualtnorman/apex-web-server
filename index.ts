@@ -1,6 +1,7 @@
 import fs, { createReadStream } from "fs"
 import { IncomingMessage, Server as HTTPServer, ServerResponse } from "http"
 import { Server as HTTPSServer } from "https"
+import ipaddr from "ipaddr.js"
 import { load as parseYAML, YAMLException } from "js-yaml"
 import { lookup as lookupType } from "mime-types"
 import { dirname, resolve as resolvePath } from "path"
@@ -145,8 +146,34 @@ async function loadModule(url: string, name: string) {
 // TODO after I fix protocol in redirect url, I need to add a config to force protocol
 
 function processRequest(request: IncomingMessage, response: ServerResponse) {
-	console.log(request.constructor.name)
-	log(`[${request.connection.remoteAddress}] ${request.method} ${request.url || "/"} HTTP/${request.httpVersion}`)
+	if (!request.socket.remoteAddress) {
+		response.end()
+		return
+	}
+
+	let ip: string
+	let localConnection: boolean
+
+	const parsedSocketIP = ipaddr.process(request.socket.remoteAddress)
+
+	if (parsedSocketIP.range() == "private") {
+		if ("X-Real-IP" in request.headers) {
+			assert(typeof request.headers["X-Real-IP"] == "string", `"X-Real-IP" header was not a string`)
+
+			const parsedRealIP = ipaddr.process(request.headers["X-Real-IP"])
+
+			ip = parsedRealIP.toString()
+			localConnection = parsedRealIP.range() == "private"
+		} else {
+			ip = parsedSocketIP.toString()
+			localConnection = true
+		}
+	} else {
+		ip = parsedSocketIP.toString()
+		localConnection = false
+	}
+
+	log(`[${ip}] ${request.method} ${request.url || "/"} HTTP/${request.httpVersion}`)
 
 	if (config.logHeaders)
 		log(`header: ${request.rawHeaders.join(", ")}`)
@@ -274,7 +301,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 
 								readFile(resolvePath("web/_status/500.html")).then(
 									value => response.writeHead(500, { "Content-Type": "text/html" }).end(value),
-									() => response.writeHead(500, { "Content-Type": "text/plain" }).end("500 internal server error")
+									() => response.writeHead(500, { "Content-Type": "text/plain" }).end(`500 internal server error${localConnection ? `\n${reason?.stack}` : ""}`)
 								)
 						}
 					})
@@ -285,7 +312,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 				let data = ""
 				let url = `${host}${request.url}`
 
-				log(`answer POST request to ${url} from ${request.connection.remoteAddress}`)
+				log(`answer POST request to ${url} from ${ip}`)
 
 				request.on("data", (chunk: Buffer) => data += chunk.toString()).on("end", () => {
 					const module = loadedModules.get(url)
