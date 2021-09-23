@@ -157,10 +157,10 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 	const socketIPRange = parsedSocketIP.range()
 
 	if (socketIPRange == "private" || socketIPRange == "loopback") {
-		if ("X-Real-IP" in request.headers) {
-			assert(typeof request.headers["X-Real-IP"] == "string", `"X-Real-IP" header was not a string`)
+		if ("x-real-ip" in request.headers) {
+			assert(typeof request.headers["x-real-ip"] == "string", `"X-Real-IP" header was not a string`)
 
-			const parsedRealIP = ipaddr.process(request.headers["X-Real-IP"])
+			const parsedRealIP = ipaddr.process(request.headers["x-real-ip"])
 
 			ip = parsedRealIP.toString()
 			localConnection = parsedRealIP.range() == "private"
