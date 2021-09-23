@@ -141,7 +141,6 @@ async function loadModule(url: string, name: string) {
 	})
 }
 
-// TODO x real ip
 // FIXME headers comma list no colon
 // TODO after I fix protocol in redirect url, I need to add a config to force protocol
 
@@ -155,8 +154,9 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 	let localConnection: boolean
 
 	const parsedSocketIP = ipaddr.process(request.socket.remoteAddress)
+	const socketIPRange = parsedSocketIP.range()
 
-	if (parsedSocketIP.range() == "private") {
+	if (socketIPRange == "private" || socketIPRange == "loopback") {
 		if ("X-Real-IP" in request.headers) {
 			assert(typeof request.headers["X-Real-IP"] == "string", `"X-Real-IP" header was not a string`)
 
