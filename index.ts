@@ -125,10 +125,10 @@ async function loadConfigLoop() {
 async function loadModule(url: string, name: string) {
 	loadedModules.set(url, {
 		name,
-		api: await import(name).then((api: unknown) => {
-			if (typeof api == "function") {
+		api: await import(name).then((module: { onPost?: unknown }) => {
+			if (typeof module.onPost == "function") {
 				log(`load module '${name}' at '${url}'`)
-				return api
+				return module.onPost
 			}
 
 			log(`fail to load module '${name}', is not a function`)
