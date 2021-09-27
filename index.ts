@@ -9,7 +9,7 @@ import { assert, dateToString } from "./lib"
 
 const { readFile, stat } = fs.promises
 
-type Config = {
+export type Config = {
 	redirects: Map<string, string>
 	symlinks: Map<string, string>
 	httpPort: number
@@ -18,10 +18,6 @@ type Config = {
 	headers: Map<string, string>
 	webDirectory: string
 	logHeaders: boolean
-}
-
-type JSONValue = string | number | boolean | null | JSONValue[] | {
-	[key: string]: JSONValue
 }
 
 // TODO type: "module" in package.json
