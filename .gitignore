@@ -109,3 +109,4 @@ privkey.pem
 *.js
 meta
 *.d.ts
+test
