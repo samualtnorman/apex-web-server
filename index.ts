@@ -10,12 +10,12 @@ import { assert, dateToString } from "./lib"
 const { readFile, stat } = fs.promises
 
 type Config = {
-	redirects: Record<string, string>
-	symlinks: Record<string, string>
+	redirects: Map<string, string>
+	symlinks: Map<string, string>
 	httpPort: number
 	httpsPort: number
-	apis: Record<string, string>
-	headers: Record<string, string>
+	apis: Map<string, string>
+	headers: Map<string, string>
 	webDirectory: string
 	logHeaders: boolean
 }
@@ -28,7 +28,7 @@ type JSONValue = string | number | boolean | null | JSONValue[] | {
 
 const loadedModules = new Map<string, { name: string, api: Function }>()
 
-let config: Record<string, JSONValue> = {}
+let config!: Config
 let configFileLastUpdated = NaN
 
 ;(async () => {
@@ -38,10 +38,10 @@ let configFileLastUpdated = NaN
 		loadConfigLoop()
 	])
 
-	const httpPort = Number(config.httpPort) || 80
+	const httpPort = config.httpPort
 
 	if (key && cert) {
-		const httpsPort = Number(config.httpsPort) || 443
+		const httpsPort = config.httpsPort
 
 		log(`start HTTP redirect server on port ${httpPort}`)
 		log(`start HTTPS server on port ${httpsPort}`)
@@ -90,36 +90,32 @@ async function loadConfigLoop() {
 
 		if (isRecord(configTemp)) {
 			if (yamlWarnings.length) {
-				console.warn(`\nyaml parse warnings:\n`)
+				console.warn(`\nconfig parse warnings:\n`)
 				console.warn(yamlWarnings.join(`\n`), `\n`)
 			}
 
-			config = configTemp as Record<string, JSONValue>
+			config = parseConfig(configTemp)
 		} else
 			log(`did not load config file`)
 
-		if (isRecord(config.apis)) {
-			const toUnload = new Set(loadedModules.keys())
+		const toUnload = new Set(loadedModules.keys())
 
-			for (const [ url, name ] of Object.entries(config.apis)) {
-				toUnload.delete(url)
+		for (const [ url, name ] of config.apis.entries()) {
+			toUnload.delete(url)
 
-				if (typeof name == `string`) {
-					const module = loadedModules.get(url)
+			const module = loadedModules.get(url)
 
-					if (!module || module.name != name)
-						loadModule(url, name)
-				}
-			}
+			if (!module || module.name != name)
+				loadModule(url, name)
+		}
 
-			for (const url of toUnload) {
-				log(`unload module at '${url}'`)
-				loadedModules.delete(url)
-			}
+		for (const url of toUnload) {
+			log(`unload module at '${url}'`)
+			loadedModules.delete(url)
 		}
 	}
 
-	setTimeout(loadConfigLoop, 10000)
+	setTimeout(loadConfigLoop, 1000)
 }
 
 async function loadModule(url: string, name: string) {
@@ -183,41 +179,24 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 
 		switch (request.method) {
 			case `GET`: {
-				let redirect: string | null = null
-
-				if (isRecord(config.redirects)) {
-					let potentialRedirect = config.redirects[host]
-
-					if (typeof potentialRedirect == `string`)
-						redirect = potentialRedirect
-				}
-
-				if (redirect) {
-					const href = `${redirect}${request.url || ``}`
+				if (config.redirects.has(host)) {
+					const href = `${config.redirects.get(host)}${request.url || ``}`
 
 					log(`301 redirect from ${host} to ${href}`)
 					response.writeHead(301, { Location: href }).end()
 				} else {
 					let dir = host
-					let symlink: string | null = null
 
-					if (isRecord(config.symlinks)) {
-						let potSymlink = config.symlinks[dir]
+					if (config.symlinks.has(dir))
+						dir = config.symlinks.get(dir)!
 
-						if (typeof potSymlink == `string`)
-							symlink = potSymlink
-					}
-
-					if (symlink)
-						dir = symlink
-
-					dir += request.url || ``
+					dir += request.url || `/`
 
 					if (dir.slice(-1) == `/`)
 						dir += `index.html`
 
 					const range = request.headers.range
-					const path = resolvePath(String(config.webDirectory || `web`), dir)
+					const path = resolvePath(config.webDirectory, dir)
 
 					stat(path).then(stats => {
 						if (stats.isFile()) {
@@ -227,10 +206,8 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 							// TODO fix redirecting to https when on http mode
 							response.setHeader(`Content-Location`, `https://${dir}`)
 
-							if (isRecord(config.headers))
-								for (const [ header, content ] of Object.entries(config.headers))
-									if (typeof content == `string`)
-										response.setHeader(header, content)
+							for (const [ header, content ] of config.headers.entries())
+								response.setHeader(header, content)
 
 							if (range) {
 								const [ startStr, endStr ] = range.replace(/bytes=/, ``).split(`-`)
@@ -325,7 +302,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 					let returnValue
 
 					try {
-						returnValue = module.api(data, { isLocalConnection, ip })
+						returnValue = module.api(data, { isLocalConnection, ip, config })
 					} catch (error) {
 						console.error(`Caught`, error)
 						response.end(`{"ok":false,"msg":"internal server error"}`)
@@ -352,4 +329,121 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function log(message: string) {
 	console.log(`[${dateToString(new Date())}] ${message}`)
+}
+
+function parseConfig(configToParse: any) {
+	const config: Config = {
+		redirects: new Map<string, string>(),
+		symlinks: new Map<string, string>(),
+		httpPort: 80,
+		httpsPort: 443,
+		apis: new Map<string, string>(),
+		headers: new Map<string, string>(),
+		webDirectory: "web",
+		logHeaders: false
+	}
+
+	if (!isRecord(configToParse)) {
+		console.error(`config warning: should have entries`)
+		return config
+	}
+
+	const propertyNames = new Set(Object.getOwnPropertyNames(configToParse))
+
+	if ("redirects" in configToParse) {
+		propertyNames.delete("redirects")
+
+		if (isRecord(configToParse.redirects)) {
+			for (const [ key, value ] of Object.entries(configToParse.redirects)) {
+				if (typeof value == "string")
+					config.redirects.set(key, value)
+				else
+					console.error(`config warning: "${key}" in "redirects" entry should be a string`)
+			}
+		} else
+			console.error(`config warning: "redirects" should have entries`)
+	}
+
+	if ("symlinks" in configToParse) {
+		propertyNames.delete("symlinks")
+
+		if (isRecord(configToParse.symlinks)) {
+			for (const [ key, value ] of Object.entries(configToParse.symlinks)) {
+				if (typeof value == "string")
+					config.symlinks.set(key, value)
+				else
+				console.error(`config warning: "${key}" in "symlinks" entry should be a string`)
+			}
+		} else
+			console.error(`config warning: "symlinks" should have entries`)
+	}
+
+	if ("httpPort" in configToParse) {
+		propertyNames.delete("httpPort")
+
+		if (typeof configToParse.httpPort == "number")
+			config.httpPort = configToParse.httpPort
+		else
+			console.error(`config warning: "httpPort" should be a number`)
+	}
+
+	if ("httpsPort" in configToParse) {
+		propertyNames.delete("httpsPort")
+
+		if (typeof configToParse.httpsPort == "number")
+			config.httpsPort = configToParse.httpsPort
+		else
+			console.error(`config warning: "httpsPort" should be a number`)
+	}
+
+	if ("apis" in configToParse) {
+		propertyNames.delete("apis")
+
+		if (isRecord(configToParse.apis)) {
+			for (const [ key, value ] of Object.entries(configToParse.apis)) {
+				if (typeof value == "string")
+					config.apis.set(key, value)
+				else
+				console.error(`config warning: "${key}" in "apis" entry should be a string`)
+			}
+		} else
+			console.error(`config warning: "apis" should have entries`)
+	}
+
+	if ("headers" in configToParse) {
+		propertyNames.delete("headers")
+
+		if (isRecord(configToParse.headers)) {
+			for (const [ key, value ] of Object.entries(configToParse.headers)) {
+				if (typeof value == "string")
+					config.headers.set(key, value)
+				else
+				console.error(`config warning: "${key}" in "headers" entry should be a string`)
+			}
+		} else
+			console.error(`config warning: "headers" should have entries`)
+	}
+
+	if ("webDirectory" in configToParse) {
+		propertyNames.delete("webDirectory")
+
+		if (typeof configToParse.webDirectory == "string")
+			config.webDirectory = configToParse.webDirectory
+		else
+			console.error(`config warning: "webDirectory" should be a string`)
+	}
+
+	if ("logHeaders" in configToParse) {
+		propertyNames.delete("logHeaders")
+
+		if (typeof configToParse.logHeaders == "boolean")
+			config.logHeaders = configToParse.logHeaders
+		else
+			console.error(`config warning: "logHeaders" should be a boolean`)
+	}
+
+	for (const propertyName of propertyNames)
+		console.error(`config warning: unrecognised entry "${propertyName}"`)
+
+	return config
 }
