@@ -151,7 +151,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 	}
 
 	let ip: string
-	let localConnection: boolean
+	let isLocalConnection: boolean
 
 	const parsedSocketIP = ipaddr.process(request.socket.remoteAddress)
 	const socketIPRange = parsedSocketIP.range()
@@ -163,14 +163,14 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 			const parsedRealIP = ipaddr.process(request.headers[`x-real-ip`])
 
 			ip = parsedRealIP.toString()
-			localConnection = parsedRealIP.range() == `private`
+			isLocalConnection = parsedRealIP.range() == `private`
 		} else {
 			ip = parsedSocketIP.toString()
-			localConnection = true
+			isLocalConnection = true
 		}
 	} else {
 		ip = parsedSocketIP.toString()
-		localConnection = false
+		isLocalConnection = false
 	}
 
 	log(`[${ip}] ${request.method} ${request.url || `/`} HTTP/${request.httpVersion}`)
@@ -301,7 +301,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 
 								readFile(resolvePath(`web/_status/500.html`)).then(
 									value => response.writeHead(500, { "Content-Type": `text/html` }).end(value),
-									() => response.writeHead(500, { "Content-Type": `text/plain` }).end(`500 internal server error${localConnection ? `\n${reason?.stack}` : ``}`)
+									() => response.writeHead(500, { "Content-Type": `text/plain` }).end(`500 internal server error${isLocalConnection ? `\n${reason?.stack}` : ``}`)
 								)
 						}
 					})
@@ -317,10 +317,28 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 				request.on(`data`, (chunk: Buffer) => data += chunk.toString()).on(`end`, () => {
 					const module = loadedModules.get(url)
 
-					if (module)
-						Promise.resolve(module.api(data)).then(value => response.end(JSON.stringify(value))).catch(reason => console.log(reason))
-					else
+					if (!module) {
 						response.end(`{"ok":false,"msg":"no api on this url"}`)
+						return
+					}
+
+					let returnValue
+
+					try {
+						returnValue = module.api(data, { isLocalConnection, ip })
+					} catch (error) {
+						console.error(`Caught`, error)
+						response.end(`{"ok":false,"msg":"internal server error"}`)
+						return
+					}
+
+					Promise.resolve(returnValue).then(JSON.stringify).then(
+						json => response.end(json),
+						reason => {
+							console.error(`Caught`, reason)
+							response.end(`{"ok":false,"msg":"internal server error"}`)
+						}
+					)
 				})
 			}
 		}
