@@ -33,8 +33,8 @@ let configFileLastUpdated = NaN
 
 ;(async () => {
 	const [ key, cert ] = await Promise.all([
-		readFile(resolvePath("privkey.pem"), { encoding: "utf-8" }).catch(() => ""),
-		readFile(resolvePath("fullchain.pem"), { encoding: "utf-8" }).catch(() => ""),
+		readFile(resolvePath(`privkey.pem`), { encoding: `utf-8` }).catch(() => ``),
+		readFile(resolvePath(`fullchain.pem`), { encoding: `utf-8` }).catch(() => ``),
 		loadConfigLoop()
 	])
 
@@ -47,13 +47,13 @@ let configFileLastUpdated = NaN
 		log(`start HTTPS server on port ${httpsPort}`)
 
 		new HTTPServer((req, res) => {
-			log(`[${req.connection.remoteAddress}] ${req.method} ${req.url || "/"} HTTP/${req.httpVersion}`)
+			log(`[${req.connection.remoteAddress}] ${req.method} ${req.url || `/`} HTTP/${req.httpVersion}`)
 
 			if (config.logHeaders)
-				log(`header: ${req.rawHeaders.join(", ")}`)
+				log(`header: ${req.rawHeaders.join(`, `)}`)
 
 			if (req.headers.host) {
-				const href = `https://${req.headers.host}${req.url || ""}`
+				const href = `https://${req.headers.host}${req.url || ``}`
 
 				log(`301 redirect from HTTP to ${href}`)
 				res.writeHead(301, { Location: href })
@@ -72,31 +72,31 @@ let configFileLastUpdated = NaN
 async function loadConfigLoop() {
 	let configTemp
 
-	const configFileModifiedTime = (await stat(resolvePath("config.yml"))).mtimeMs
+	const configFileModifiedTime = (await stat(resolvePath(`config.yml`))).mtimeMs
 
 	if (configFileModifiedTime != configFileLastUpdated) {
-		log("load config file")
+		log(`load config file`)
 
 		configFileLastUpdated = configFileModifiedTime
 
 		const yamlWarnings: string[] = []
 
 		try {
-			configTemp = parseYAML(await readFile(resolvePath("config.yml"), { encoding: "utf-8" }), { onWarning(error) { yamlWarnings.push(error.message) } })
+			configTemp = parseYAML(await readFile(resolvePath(`config.yml`), { encoding: `utf-8` }), { onWarning(error) { yamlWarnings.push(error.message) } })
 		} catch (error) {
-			assert(error instanceof YAMLException, "error was not a YAMLException")
+			assert(error instanceof YAMLException, `error was not a YAMLException`)
 			console.error(`failed to parse config file: ${error.message}`)
 		}
 
 		if (isRecord(configTemp)) {
 			if (yamlWarnings.length) {
-				console.warn("\nyaml parse warnings:\n")
-				console.warn(yamlWarnings.join("\n"), "\n")
+				console.warn(`\nyaml parse warnings:\n`)
+				console.warn(yamlWarnings.join(`\n`), `\n`)
 			}
 
 			config = configTemp as Record<string, JSONValue>
 		} else
-			log("did not load config file")
+			log(`did not load config file`)
 
 		if (isRecord(config.apis)) {
 			const toUnload = new Set(loadedModules.keys())
@@ -104,7 +104,7 @@ async function loadConfigLoop() {
 			for (const [ url, name ] of Object.entries(config.apis)) {
 				toUnload.delete(url)
 
-				if (typeof name == "string") {
+				if (typeof name == `string`) {
 					const module = loadedModules.get(url)
 
 					if (!module || module.name != name)
@@ -126,17 +126,17 @@ async function loadModule(url: string, name: string) {
 	loadedModules.set(url, {
 		name,
 		api: await import(name).then((module: { onPost?: unknown }) => {
-			if (typeof module.onPost == "function") {
+			if (typeof module.onPost == `function`) {
 				log(`load module '${name}' at '${url}'`)
 				return module.onPost
 			}
 
 			log(`fail to load module '${name}', is not a function`)
-			return () => ({ ok: false, msg: "this api failed to load" })
+			return () => ({ ok: false, msg: `this api failed to load` })
 		}, error => {
 			log(`fail to load module:`)
 			console.error(error)
-			return () => ({ ok: false, msg: "this api failed to load" })
+			return () => ({ ok: false, msg: `this api failed to load` })
 		})
 	})
 }
@@ -156,14 +156,14 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 	const parsedSocketIP = ipaddr.process(request.socket.remoteAddress)
 	const socketIPRange = parsedSocketIP.range()
 
-	if (socketIPRange == "private" || socketIPRange == "loopback") {
-		if ("x-real-ip" in request.headers) {
-			assert(typeof request.headers["x-real-ip"] == "string", `"X-Real-IP" header was not a string`)
+	if (socketIPRange == `private` || socketIPRange == `loopback`) {
+		if (`x-real-ip` in request.headers) {
+			assert(typeof request.headers[`x-real-ip`] == `string`, `"X-Real-IP" header was not a string`)
 
-			const parsedRealIP = ipaddr.process(request.headers["x-real-ip"])
+			const parsedRealIP = ipaddr.process(request.headers[`x-real-ip`])
 
 			ip = parsedRealIP.toString()
-			localConnection = parsedRealIP.range() == "private"
+			localConnection = parsedRealIP.range() == `private`
 		} else {
 			ip = parsedSocketIP.toString()
 			localConnection = true
@@ -173,27 +173,27 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 		localConnection = false
 	}
 
-	log(`[${ip}] ${request.method} ${request.url || "/"} HTTP/${request.httpVersion}`)
+	log(`[${ip}] ${request.method} ${request.url || `/`} HTTP/${request.httpVersion}`)
 
 	if (config.logHeaders)
-		log(`header: ${request.rawHeaders.join(", ")}`)
+		log(`header: ${request.rawHeaders.join(`, `)}`)
 
 	if (request.headers.host) {
 		let host = request.headers.host
 
 		switch (request.method) {
-			case "GET": {
+			case `GET`: {
 				let redirect: string | null = null
 
 				if (isRecord(config.redirects)) {
 					let potentialRedirect = config.redirects[host]
 
-					if (typeof potentialRedirect == "string")
+					if (typeof potentialRedirect == `string`)
 						redirect = potentialRedirect
 				}
 
 				if (redirect) {
-					const href = `${redirect}${request.url || ""}`
+					const href = `${redirect}${request.url || ``}`
 
 					log(`301 redirect from ${host} to ${href}`)
 					response.writeHead(301, { Location: href }).end()
@@ -204,36 +204,36 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 					if (isRecord(config.symlinks)) {
 						let potSymlink = config.symlinks[dir]
 
-						if (typeof potSymlink == "string")
+						if (typeof potSymlink == `string`)
 							symlink = potSymlink
 					}
 
 					if (symlink)
 						dir = symlink
 
-					dir += request.url || ""
+					dir += request.url || ``
 
-					if (dir.slice(-1) == "/")
-						dir += "index.html"
+					if (dir.slice(-1) == `/`)
+						dir += `index.html`
 
 					const range = request.headers.range
-					const path = resolvePath(String(config.webDirectory || "web"), dir)
+					const path = resolvePath(String(config.webDirectory || `web`), dir)
 
 					stat(path).then(stats => {
 						if (stats.isFile()) {
 							const options: Parameters<typeof createReadStream>[1] = {}
 
-							response.setHeader("Content-Type", lookupType(dir) || "text/plain")
+							response.setHeader(`Content-Type`, lookupType(dir) || `text/plain`)
 							// TODO fix redirecting to https when on http mode
-							response.setHeader("Content-Location", `https://${dir}`)
+							response.setHeader(`Content-Location`, `https://${dir}`)
 
 							if (isRecord(config.headers))
 								for (const [ header, content ] of Object.entries(config.headers))
-									if (typeof content == "string")
+									if (typeof content == `string`)
 										response.setHeader(header, content)
 
 							if (range) {
-								const [ startStr, endStr ] = range.replace(/bytes=/, "").split("-")
+								const [ startStr, endStr ] = range.replace(/bytes=/, ``).split(`-`)
 
 								let start = parseInt(startStr)
 								let end = parseInt(endStr)
@@ -248,7 +248,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 
 								response.writeHead(206, {
 									"Content-Range": `bytes ${start}-${end}/${stats.size}`,
-									"Accept-Ranges": "bytes",
+									"Accept-Ranges": `bytes`,
 									"Content-Length": end - start + 1,
 								})
 							} else {
@@ -270,23 +270,23 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 						let href: string
 
 						switch (reason?.code) {
-							case "ENOENT":
+							case `ENOENT`:
 								log(`404 ${dir} does not exist`)
 
-								readFile(resolvePath("meta/404.html")).catch(() => "").then(
-									value => response.writeHead(404, { "Content-Type": "text/html" }).end(value),
-									() => response.writeHead(404, { "Content-Type": "text/plain" }).end("404 not found")
+								readFile(resolvePath(`meta/404.html`)).catch(() => ``).then(
+									value => response.writeHead(404, { "Content-Type": `text/html` }).end(value),
+									() => response.writeHead(404, { "Content-Type": `text/plain` }).end(`404 not found`)
 								)
 
 								break
-							case "ENOTDIR":
+							case `ENOTDIR`:
 								// TODO fix redirecting to https when on http mode
 								href = `https://${dirname(dir)}`
 
 								response.writeHead(301, { Location: href })
 									.end(`301 moved permanently\n${href}`)
 								break
-							case "EISDIR":
+							case `EISDIR`:
 								// TODO fix redirecting to https when on http mode
 								href = `https://${dir}/`
 
@@ -296,25 +296,25 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 									.end(`301 moved permanently\n${href}`)
 								break
 							default:
-								log("500 let samual know if you see this:")
+								log(`500 let samual know if you see this:`)
 								console.log(reason)
 
-								readFile(resolvePath("web/_status/500.html")).then(
-									value => response.writeHead(500, { "Content-Type": "text/html" }).end(value),
-									() => response.writeHead(500, { "Content-Type": "text/plain" }).end(`500 internal server error${localConnection ? `\n${reason?.stack}` : ""}`)
+								readFile(resolvePath(`web/_status/500.html`)).then(
+									value => response.writeHead(500, { "Content-Type": `text/html` }).end(value),
+									() => response.writeHead(500, { "Content-Type": `text/plain` }).end(`500 internal server error${localConnection ? `\n${reason?.stack}` : ``}`)
 								)
 						}
 					})
 				}
 			} break
 
-			case "POST": {
-				let data = ""
+			case `POST`: {
+				let data = ``
 				let url = `${host}${request.url}`
 
 				log(`answer POST request to ${url} from ${ip}`)
 
-				request.on("data", (chunk: Buffer) => data += chunk.toString()).on("end", () => {
+				request.on(`data`, (chunk: Buffer) => data += chunk.toString()).on(`end`, () => {
 					const module = loadedModules.get(url)
 
 					if (module)
@@ -329,7 +329,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-	return !!value && typeof value == "object" && !Array.isArray(value)
+	return !!value && typeof value == `object` && !Array.isArray(value)
 }
 
 function log(message: string) {
