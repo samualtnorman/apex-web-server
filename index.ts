@@ -5,27 +5,37 @@ import ipaddr from "ipaddr.js"
 import { load as parseYAML, YAMLException } from "js-yaml"
 import { lookup as lookupType } from "mime-types"
 import { dirname, resolve as resolvePath } from "path"
-import { assert, dateToString } from "./lib"
+import { assert, dateToString, isRecord } from "./lib"
 
 const { readFile, stat } = fs.promises
 
-export type Config = {
-	redirects: Map<string, string>
-	symlinks: Map<string, string>
-	httpPort: number
-	httpsPort: number
-	apis: Map<string, string>
-	headers: Map<string, string>
-	webDirectory: string
-	logHeaders: boolean
+declare global {
+	interface Config {
+		redirects: Map<string, string>
+		symlinks: Map<string, string>
+		httpPort: number
+		httpsPort: number
+		apis: Map<string, string>
+		headers: Map<string, string>
+		webDirectory: string
+		logHeaders: boolean
+	}
+}
+
+interface configEntryVerifierMap extends Map<keyof Config, (value: any) => Config[keyof Config]> {
+	get<K extends keyof Config>(key: K): (value: any) => Config[K]
 }
 
 // TODO type: "module" in package.json
 
 const loadedModules = new Map<string, { name: string, api: Function }>()
 
+const configEntryVerifiers: configEntryVerifierMap = new Map()
+
 let config!: Config
 let configFileLastUpdated = NaN
+
+log("apex start")
 
 ;(async () => {
 	const [ key, cert ] = await Promise.all([
@@ -81,34 +91,147 @@ async function loadConfigLoop() {
 			configTemp = parseYAML(await readFile(resolvePath(`config.yml`), { encoding: `utf-8` }), { onWarning(error) { yamlWarnings.push(error.message) } })
 		} catch (error) {
 			assert(error instanceof YAMLException, `error was not a YAMLException`)
-			console.error(`failed to parse config file: ${error.message}`)
+			logError(`failed to parse config file: ${error.message}`)
 		}
 
-		if (isRecord(configTemp)) {
-			if (yamlWarnings.length) {
-				console.warn(`\nconfig parse warnings:\n`)
-				console.warn(yamlWarnings.join(`\n`), `\n`)
-			}
+		if (yamlWarnings.length) {
+			console.warn(`\nconfig parse warnings:\n`)
+			console.warn(yamlWarnings.join(`\n`), `\n`)
+		}
 
-			config = parseConfig(configTemp)
-		} else
-			log(`did not load config file`)
+		config = {
+			redirects: new Map<string, string>(),
+			symlinks: new Map<string, string>(),
+			httpPort: 80,
+			httpsPort: 443,
+			apis: new Map<string, string>(),
+			headers: new Map<string, string>(),
+			webDirectory: "web",
+			logHeaders: false
+		} as Config
+
+		if (!isRecord(configTemp)) {
+			logError(`config warning: should have entries`)
+			return config
+		}
+
+		const propertyNames = new Set(Object.getOwnPropertyNames(configTemp))
+
+		if ("redirects" in configTemp) {
+			propertyNames.delete("redirects")
+
+			if (isRecord(configTemp.redirects)) {
+				for (const [ key, value ] of Object.entries(configTemp.redirects)) {
+					if (typeof value == "string")
+						config.redirects.set(key, value)
+					else
+						logError(`config warning: "${key}" in "redirects" entry should be a string`)
+				}
+			} else
+				logError(`config warning: "redirects" should have entries`)
+		}
+
+		if ("symlinks" in configTemp) {
+			propertyNames.delete("symlinks")
+
+			if (isRecord(configTemp.symlinks)) {
+				for (const [ key, value ] of Object.entries(configTemp.symlinks)) {
+					if (typeof value == "string")
+						config.symlinks.set(key, value)
+					else
+					logError(`config warning: "${key}" in "symlinks" entry should be a string`)
+				}
+			} else
+				logError(`config warning: "symlinks" should have entries`)
+		}
+
+		if ("httpPort" in configTemp) {
+			propertyNames.delete("httpPort")
+
+			if (typeof configTemp.httpPort == "number")
+				config.httpPort = configTemp.httpPort
+			else
+				logError(`config warning: "httpPort" should be a number`)
+		}
+
+		if ("httpsPort" in configTemp) {
+			propertyNames.delete("httpsPort")
+
+			if (typeof configTemp.httpsPort == "number")
+				config.httpsPort = configTemp.httpsPort
+			else
+				logError(`config warning: "httpsPort" should be a number`)
+		}
+
+		if ("apis" in configTemp) {
+			propertyNames.delete("apis")
+
+			if (isRecord(configTemp.apis)) {
+				for (const [ key, value ] of Object.entries(configTemp.apis)) {
+					if (typeof value == "string")
+						config.apis.set(key, value)
+					else
+						logError(`config warning: "${key}" in "apis" entry should be a string`)
+				}
+			} else
+				logError(`config warning: "apis" should have entries`)
+		}
+
+		if ("headers" in configTemp) {
+			propertyNames.delete("headers")
+
+			if (isRecord(configTemp.headers)) {
+				for (const [ key, value ] of Object.entries(configTemp.headers)) {
+					if (typeof value == "string")
+						config.headers.set(key, value)
+					else
+						logError(`config warning: "${key}" in "headers" entry should be a string`)
+				}
+			} else
+				logError(`config warning: "headers" should have entries`)
+		}
+
+		if ("webDirectory" in configTemp) {
+			propertyNames.delete("webDirectory")
+
+			if (typeof configTemp.webDirectory == "string")
+				config.webDirectory = configTemp.webDirectory
+			else
+				logError(`config warning: "webDirectory" should be a string`)
+		}
+
+		if ("logHeaders" in configTemp) {
+			propertyNames.delete("logHeaders")
+
+			if (typeof configTemp.logHeaders == "boolean")
+				config.logHeaders = configTemp.logHeaders
+			else
+				logError(`config warning: "logHeaders" should be a boolean`)
+		}
 
 		const toUnload = new Set(loadedModules.keys())
 
-		for (const [ url, name ] of config.apis.entries()) {
+		for (const [ url, name ] of config.apis) {
 			toUnload.delete(url)
 
 			const module = loadedModules.get(url)
 
 			if (!module || module.name != name)
-				loadModule(url, name)
+				await loadModule(url, name)
 		}
 
 		for (const url of toUnload) {
 			log(`unload module at '${url}'`)
 			loadedModules.delete(url)
 		}
+
+		for (const [ name, verifier ] of configEntryVerifiers) {
+			(config as any)[name] = verifier(configTemp[name])
+			propertyNames.delete(name)
+		}
+
+		for (const propertyName of propertyNames)
+			logError(`config warning: unrecognised entry "${propertyName}"`)
 	}
 
 	setTimeout(loadConfigLoop, 1000)
@@ -127,7 +250,7 @@ async function loadModule(url: string, name: string) {
 			return () => ({ ok: false, msg: `this api failed to load` })
 		}, error => {
 			log(`fail to load module:`)
-			console.error(error)
+			logError(error)
 			return () => ({ ok: false, msg: `this api failed to load` })
 		})
 	})
@@ -270,7 +393,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 								break
 							default:
 								log(`500 let samual know if you see this:`)
-								console.log(reason)
+								log(reason)
 
 								readFile(resolvePath(`web/_status/500.html`)).then(
 									value => response.writeHead(500, { "Content-Type": `text/html` }).end(value),
@@ -300,7 +423,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 					try {
 						returnValue = module.api(data, { isLocalConnection, ip, config })
 					} catch (error) {
-						console.error(`Caught`, error)
+						logError(`Caught`, error)
 						response.end(`{"ok":false,"msg":"internal server error"}`)
 						return
 					}
@@ -308,7 +431,7 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 					Promise.resolve(returnValue).then(JSON.stringify).then(
 						json => response.end(json),
 						reason => {
-							console.error(`Caught`, reason)
+							logError(`Caught`, reason)
 							response.end(`{"ok":false,"msg":"internal server error"}`)
 						}
 					)
@@ -319,127 +442,25 @@ function processRequest(request: IncomingMessage, response: ServerResponse) {
 		response.end()
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return !!value && typeof value == `object` && !Array.isArray(value)
+export function log(...message: any[]) {
+	console.log(`[${dateToString(new Date())}]`, ...message)
 }
 
-function log(message: string) {
-	console.log(`[${dateToString(new Date())}] ${message}`)
+export function logError(...message: any[]) {
+	console.error(`[${dateToString(new Date())}]`, ...message)
 }
 
-function parseConfig(configToParse: any) {
-	const config: Config = {
-		redirects: new Map<string, string>(),
-		symlinks: new Map<string, string>(),
-		httpPort: 80,
-		httpsPort: 443,
-		apis: new Map<string, string>(),
-		headers: new Map<string, string>(),
-		webDirectory: "web",
-		logHeaders: false
+export function registerConfigEntryVerifier<T extends keyof Config>(name: T, verifier: (value: unknown) => Config[T]) {
+	if (configEntryVerifiers.has(name))
+		throw new Error(`config entry verifier already registered on "${name}"`)
+
+	configEntryVerifiers.set(name, verifier)
+
+	return function deregisterConfigEntryVerifier() {
+		configEntryVerifiers.delete(name)
 	}
+}
 
-	if (!isRecord(configToParse)) {
-		console.error(`config warning: should have entries`)
-		return config
-	}
-
-	const propertyNames = new Set(Object.getOwnPropertyNames(configToParse))
-
-	if ("redirects" in configToParse) {
-		propertyNames.delete("redirects")
-
-		if (isRecord(configToParse.redirects)) {
-			for (const [ key, value ] of Object.entries(configToParse.redirects)) {
-				if (typeof value == "string")
-					config.redirects.set(key, value)
-				else
-					console.error(`config warning: "${key}" in "redirects" entry should be a string`)
-			}
-		} else
-			console.error(`config warning: "redirects" should have entries`)
-	}
-
-	if ("symlinks" in configToParse) {
-		propertyNames.delete("symlinks")
-
-		if (isRecord(configToParse.symlinks)) {
-			for (const [ key, value ] of Object.entries(configToParse.symlinks)) {
-				if (typeof value == "string")
-					config.symlinks.set(key, value)
-				else
-				console.error(`config warning: "${key}" in "symlinks" entry should be a string`)
-			}
-		} else
-			console.error(`config warning: "symlinks" should have entries`)
-	}
-
-	if ("httpPort" in configToParse) {
-		propertyNames.delete("httpPort")
-
-		if (typeof configToParse.httpPort == "number")
-			config.httpPort = configToParse.httpPort
-		else
-			console.error(`config warning: "httpPort" should be a number`)
-	}
-
-	if ("httpsPort" in configToParse) {
-		propertyNames.delete("httpsPort")
-
-		if (typeof configToParse.httpsPort == "number")
-			config.httpsPort = configToParse.httpsPort
-		else
-			console.error(`config warning: "httpsPort" should be a number`)
-	}
-
-	if ("apis" in configToParse) {
-		propertyNames.delete("apis")
-
-		if (isRecord(configToParse.apis)) {
-			for (const [ key, value ] of Object.entries(configToParse.apis)) {
-				if (typeof value == "string")
-					config.apis.set(key, value)
-				else
-				console.error(`config warning: "${key}" in "apis" entry should be a string`)
-			}
-		} else
-			console.error(`config warning: "apis" should have entries`)
-	}
-
-	if ("headers" in configToParse) {
-		propertyNames.delete("headers")
-
-		if (isRecord(configToParse.headers)) {
-			for (const [ key, value ] of Object.entries(configToParse.headers)) {
-				if (typeof value == "string")
-					config.headers.set(key, value)
-				else
-				console.error(`config warning: "${key}" in "headers" entry should be a string`)
-			}
-		} else
-			console.error(`config warning: "headers" should have entries`)
-	}
-
-	if ("webDirectory" in configToParse) {
-		propertyNames.delete("webDirectory")
-
-		if (typeof configToParse.webDirectory == "string")
-			config.webDirectory = configToParse.webDirectory
-		else
-			console.error(`config warning: "webDirectory" should be a string`)
-	}
-
-	if ("logHeaders" in configToParse) {
-		propertyNames.delete("logHeaders")
-
-		if (typeof configToParse.logHeaders == "boolean")
-			config.logHeaders = configToParse.logHeaders
-		else
-			console.error(`config warning: "logHeaders" should be a boolean`)
-	}
-
-	for (const propertyName of propertyNames)
-		console.error(`config warning: unrecognised entry "${propertyName}"`)
-
+export function getConfig() {
 	return config
 }
